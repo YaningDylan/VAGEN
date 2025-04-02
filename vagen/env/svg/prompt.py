@@ -7,3 +7,10 @@ Reward:
 Please provide your answer in the following format:
 <think> ... your reasoning process ... </think><answer> ... your SVG code ... </answer>
 """
+
+init_observation_template = """
+[Initial Observation]:
+{observation}
+generate your svg code.
+Your reponse should be in the format of <think>...</think><answer>...</answer>
+"""

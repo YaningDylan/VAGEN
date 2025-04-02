@@ -9,7 +9,7 @@ from vagen.env.base import BaseInterface, BaseEnv, IMAGE_PLACEHOLDER
 from vagen.env.utils import preprocess, PreprocessResult, postprocess
 from vagen.env.svg.svg_utils import process_and_rasterize_svg
 from vagen.env.svg.dino import DINOScoreCalculator
-from vagen.env.svg.prompt import instruction_template
+from vagen.env.svg.prompt import (instruction_template, init_observation_template)
 
 class SVGEnv(BaseEnv):
     """
@@ -59,6 +59,7 @@ class SVGEnv(BaseEnv):
 
     def _reset(self, seed: Optional[int] = None) -> Tuple[Any, Dict]:
         #@TODO choose starting data by seed
+        #@TODO check text template
         index = 0 if seed is None else seed % len(self.dataset)
         self.current_sample = self.dataset[index]
         self.gt_svg_code = self.current_sample['extra_info']['env_config'].get('svg_code', '')
@@ -69,6 +70,7 @@ class SVGEnv(BaseEnv):
         self.done = False
 
         obs = {
+            'text_template': IMAGE_PLACEHOLDER,
             "multi_modal_data": {IMAGE_PLACEHOLDER: [self.gt_image]}
         }
         return obs, {}
@@ -150,7 +152,8 @@ class SVGInterface(BaseInterface):
 
         self.traj_reward = 0
         env_state = self.env._render(mode='text') # svg_code
-        return {"text_template": env_state, "multi_modal_data": process_and_rasterize_svg(env_state)}, {}
+        _, image = process_and_rasterize_svg(env_state)
+        return {"text_template": IMAGE_PLACEHOLDER, "multi_modal_data": {IMAGE_PLACEHOLDER: [image]}}, {}
 
     def extract_svg_code(self, text: str) -> str:
         svg_match = re.search(r'<svg.*?</svg>', text, re.DOTALL)
@@ -203,9 +206,16 @@ class SVGInterface(BaseInterface):
         self.traj_reward += reward
 
         final_info.update(info) # NOTE currently only use the last step info
-        if env_state == "Invalid answer":
+        if env_state == "Invalid answer" or "":
             return {"text_template": env_state}, reward, done, final_info
-        return {"text_template": env_state, "multi_modal_data": process_and_rasterize_svg(env_state)}, reward, done, final_info
+        _, image = process_and_rasterize_svg(env_state)
+        
+        #@TODO clean this part
+        observation = IMAGE_PLACEHOLDER
+        text_template = init_observation_template.format(
+            observation=observation,
+        )
+        return {"text_template": text_template, "multi_modal_data": {IMAGE_PLACEHOLDER: [image]}}, reward, done, final_info
 
     def close(self):
         self.env.close()
@@ -248,8 +258,7 @@ class SVGInterface(BaseInterface):
         )
         instruction = (
             "You are a SVG image-to-code generator.\n\n"
-            "Task: Given an image (represented by the <image> placeholder), generate SVG code that reproduces the image as accurately as possible.\n\n"
-            "Note: If you have an actual image, please provide its URL or identifier. Otherwise, use the <image> placeholder.\n\n"
+            "Task: Given an image, generate SVG code that reproduces the image as accurately as possible.\n\n"
             "Your response should be formatted as follows:\n"
             "<think> ... your reasoning ... </think><answer> ... your SVG code ... </answer>"
         )
