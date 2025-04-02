@@ -9,7 +9,11 @@ from vagen.env.base import BaseInterface, BaseEnv, IMAGE_PLACEHOLDER
 from vagen.env.utils import preprocess, PreprocessResult, postprocess
 from vagen.env.svg.svg_utils import process_and_rasterize_svg
 from vagen.env.svg.dino import DINOScoreCalculator
-from vagen.env.svg.prompt import (instruction_template, init_observation_template)
+from vagen.env.svg.prompt import (
+    init_observation_template,
+    action_template,
+    instruction_template,
+)
 
 class SVGEnv(BaseEnv):
     """
@@ -61,7 +65,6 @@ class SVGEnv(BaseEnv):
 
     def _reset(self, seed: Optional[int] = None) -> Tuple[Any, Dict]:
         #@TODO choose starting data by seed
-        #@TODO check text template
         index = 0 if seed is None else seed % len(self.dataset)
         self.current_sample = self.dataset[index]
         self.gt_svg_code = self.current_sample['extra_info']['env_config'].get('svg_code', '')
@@ -73,7 +76,6 @@ class SVGEnv(BaseEnv):
         self.first_round = True
 
         obs = {
-            'text_template': IMAGE_PLACEHOLDER,
             "multi_modal_data": {IMAGE_PLACEHOLDER: [self.gt_image]}
         }
         return obs, {}
@@ -107,7 +109,7 @@ class SVGEnv(BaseEnv):
         self.gen_svg_code = action
 
         obs = {
-            "latest_action": action,
+            "latest_action": action
         }
         info = {
             "gt_svg_code": self.gt_svg_code,
@@ -115,7 +117,7 @@ class SVGEnv(BaseEnv):
             "dino_score": score
         }
         return obs, reward, self.done, info
-    # @TODO does it be used in training? return gt first
+    
     def _render(self, mode='text'):
         assert mode == 'text'
         if self.first_round:
@@ -123,6 +125,7 @@ class SVGEnv(BaseEnv):
             return self.gt_svg_code
         else:
             return self.gen_svg_code
+    
     def close(self):
         pass
 
@@ -147,17 +150,18 @@ class SVGInterface(BaseInterface):
     @classmethod
     def _extract_one_action(cls, text):
         """Extract single action from text, the input text should ensure only one action contained"""
-
         return text
 
-    #@TODO check if text_template must be used in forming prompt
     def _reset(self, seed: Optional[int] = None) -> Dict:
         obs, _ = self.env._reset(seed=seed)
 
         self.traj_reward = 0
-        env_state = self.env._render(mode='text') # svg_code
-        _, image = process_and_rasterize_svg(env_state)
-        return {"text_template": IMAGE_PLACEHOLDER, "multi_modal_data": {IMAGE_PLACEHOLDER: [image]}}, {}
+        observation = IMAGE_PLACEHOLDER
+        text_template = init_observation_template.format(
+            observation=observation,
+        )
+        obs["text_template"] = text_template
+        return obs, {}
 
     def extract_svg_code(self, text: str) -> str:
         svg_match = re.search(r'<svg.*?</svg>', text, re.DOTALL)
@@ -214,18 +218,19 @@ class SVGInterface(BaseInterface):
             return {"text_template": env_state}, reward, done, final_info
         _, image = process_and_rasterize_svg(env_state)
         
-        #@TODO clean this part + sometimes cause image token out of memory (why limit_mm_per_prompt doesn't work?)
+        #@TODO sometimes cause image token out of memory (why limit_mm_per_prompt doesn't work?)
         observation = IMAGE_PLACEHOLDER
-        text_template = init_observation_template.format(
+        text_template = action_template.format(
             observation=observation,
+            reward=reward
         )
-        return {"text_template": text_template, "multi_modal_data": {IMAGE_PLACEHOLDER: [image]}}, reward, done, final_info
+        obs = {"text_template": text_template, "multi_modal_data": image}
+        return obs, reward, done, final_info
 
     def close(self):
         self.env.close()
 
     @classmethod
-    #@TODO revise this prompt (ValueError: The prompt (total length 1321) is too long to fit into the model (context length 1280). Make sure that max_model_len is no smaller than the number of text tokens plus multimodal tokens. For image inputs, the number of image tokens depends on the number of images, and possibly their aspect ratios as well.)
     def config_repr(cls, env_config: Dict, interface_config: Dict) -> str:
         """
         Create a string representation of the configuration.
@@ -257,24 +262,10 @@ class SVGInterface(BaseInterface):
             f"format_penalty={interface_config.get('format_penalty', 0.0)})"
         )
 
-        system_prompt = (
-            "You are a helpful assistant. You first think about the reasoning process in your mind and then provide the answer."
-        )
-        instruction = (
-            "You are a SVG image-to-code generator.\n\n"
-            "Task: Given an image, generate SVG code that reproduces the image as accurately as possible.\n\n"
-            "Your response should be formatted as follows:\n"
-            "<think> ... your reasoning ... </think><answer> ... your SVG code ... </answer>"
-        )
-
-        prompt_summary = f"System Prompt:\n{system_prompt}\n\nInstruction:\n{instruction}"
-
-        return f"{env_config_str}, {interface_config_str}\n\nPrompt Summary:\n{prompt_summary}"
+        return f"{env_config_str}, {interface_config_str}"
+    
     def get_task_instruction(self) -> str:
-        return instruction_template.format(
-            format_reward=self.interface_config['format_reward'],
-            format_penalty=self.interface_config['format_penalty'],
-        )
+        return instruction_template
 
     def get_traj_reward(self):
         return self.traj_reward
