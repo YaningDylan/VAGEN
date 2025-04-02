@@ -4,7 +4,8 @@ import torch
 from typing import Dict, Any, Optional, List, Union, Tuple
 from datasets import Dataset
 from PIL import Image
-from vagen.env.base import BaseEnv, IMAGE_PLACEHOLDER
+from vagen.env.register import register
+from vagen.env.base import BaseInterface, BaseEnv, IMAGE_PLACEHOLDER
 from vagen.env.utils import preprocess, PreprocessResult, postprocess
 from vagen.env.svg.svg_utils import process_and_rasterize_svg
 from vagen.env.svg.dino import DINOScoreCalculator
@@ -38,9 +39,11 @@ class SVGEnv(BaseEnv):
             dataset_path: 'data/svg/train(test).parquet'
             device: for dino reward model
         """
+        #@TODO avoid double loading (one from here and one from trainer) check!
         if not os.path.exists(dataset_path):
             raise ValueError(f"Dataset path {dataset_path} does not exist.")
         # load dataset
+        dataset_path =  os.path.join(dataset_path, 'train.parquet')
         self.dataset = Dataset.from_parquet(dataset_path)
         self.device = device
         # init reward model
@@ -117,6 +120,7 @@ class SVGEnv(BaseEnv):
     def close(self):
         pass
 
+@register(name="svg")
 class SVGInterface(BaseInterface):
 
     def __init__(self, env_config: Dict, interface_config: Dict):

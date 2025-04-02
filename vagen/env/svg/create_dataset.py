@@ -1,4 +1,4 @@
-from datasets import load_dataset
+from datasets import load_dataset, Dataset
 from vagen.env.create_dataset import DatasetCreator
 from typing import Union, List, Dict, Optional
 import os
@@ -13,9 +13,10 @@ class SVGDatasetCreator(DatasetCreator):
         
     def create_dataset(
         self, 
-        force_gen: bool = False,
+        seed: Union[int, List[int]] = 0, 
         train_samples: Optional[int] = None,
-        test_samples: Optional[int] = None,
+        test_samples: Optional[int] = None, 
+        force_gen: bool = False
     ):
         """
         Create SVG dataset utilizing Hugging Face dataset's built-in splits
@@ -39,7 +40,13 @@ class SVGDatasetCreator(DatasetCreator):
         os.makedirs(self.data_dir, exist_ok=True)
         
         # Load Hugging Face dataset
-        hf_dataset = load_dataset(self.dataset_name)
+        try:
+            print(f"Loading dataset {self.dataset_name}")
+            hf_dataset = load_dataset(self.dataset_name)
+            print(f"Dataset loaded successfully with splits: {list(hf_dataset.keys())}")
+        except Exception as e:
+            print(f"Error loading dataset {self.dataset_name}: {e}")
+            raise
         
         # Process each split
         splits = ["train", "test"]
@@ -50,12 +57,14 @@ class SVGDatasetCreator(DatasetCreator):
             if split in hf_dataset:
                 # Get split data
                 split_data = hf_dataset[split]
+                print(f"Processing {split} split with {len(split_data)} examples")
                 
-                # If sample count specified and not using full dataset, sample accordingly
-                if sample_limit is not None and not use_full_dataset:
+                # If sample count specified, sample accordingly
+                if sample_limit is not None:
                     sample_limit = min(sample_limit, len(split_data))
                     indices = list(range(sample_limit))
                     split_data = split_data.select(indices)
+                    print(f"Sampled {sample_limit} examples from {split} split")
                 
                 # Create instances with environment configuration
                 instances = []
@@ -64,9 +73,10 @@ class SVGDatasetCreator(DatasetCreator):
                         'env_name': self.env_name,
                         'env_config': {
                             **self.env_config,
-                            'svg_filename': item['Filename'],
-                            'svg_code': item['Svg'],
-                            'item_idx': idx
+                            'svg_filename': item.get('Filename', f'image_{idx}'),
+                            'svg_code': item.get('Svg', ''),
+                            'item_idx': idx,
+                            'data_dir': self.data_dir
                         },
                         'interface_config': self.interface_config,
                         'seed': idx  # Use index as seed
@@ -80,10 +90,15 @@ class SVGDatasetCreator(DatasetCreator):
                 
                 # Create dataset and save
                 if instances:
-                    from datasets import Dataset
-                    dataset = Dataset.from_list(instances)
-                    dataset.to_parquet(output_file)
-                    print(f"Created {split} dataset with {len(instances)} samples at {output_file}")
+                    try:
+                        dataset = Dataset.from_list(instances)
+                        dataset.to_parquet(output_file)
+                        print(f"Created {split} dataset with {len(instances)} samples at {output_file}")
+                    except Exception as e:
+                        print(f"Error creating {split} dataset: {e}")
+                        raise
+                else:
+                    print(f"No instances created for {split} split")
             else:
                 print(f"Split '{split}' not found in dataset")
         

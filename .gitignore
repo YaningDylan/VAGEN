@@ -1,3 +1,7 @@
+# self added
+/temp/
+
+
 **/*.pt
 **/checkpoints
 **/wget-log
