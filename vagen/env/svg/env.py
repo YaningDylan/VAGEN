@@ -27,6 +27,7 @@ class SVGEnv(BaseEnv):
               item_idx: int
               svg_code: str
               svg_filename: str
+              score_config: dict
           env_name: str
           interface_config: dict
               format_penalty: int
@@ -198,7 +199,7 @@ class SVGInterface(BaseInterface):
         if not action_list:
             reward += self.interface_config['format_penalty']
             env_state = "Invalid answer"
-            done = False
+            done = True
             info = {}
 
         else:
@@ -214,6 +215,7 @@ class SVGInterface(BaseInterface):
         self.traj_reward += reward
 
         final_info.update(info) # NOTE currently only use the last step info
+        #@ Add a "Trash Bin" here
         if env_state == "Invalid answer" or "":
             return {"text_template": env_state}, reward, done, final_info
         _, image = process_and_rasterize_svg(env_state)

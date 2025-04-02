@@ -78,7 +78,7 @@ class DINOScoreCalculator(BaseMetric):
         super().__init__()
         self.class_name = self.__class__.__name__
         self.config = config
-        self.model, self.processor = self.get_DINOv2_model("base")
+        self.model, self.processor = self.get_DINOv2_model("large")
         device = device if torch.cuda.is_available() else "cpu"
         self.model = self.model.to(device)
         self.device = device
