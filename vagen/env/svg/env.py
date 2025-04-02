@@ -49,6 +49,8 @@ class SVGEnv(BaseEnv):
         # init reward model
         self.reward_model = DINOScoreCalculator(device=self.device)
         self.done = False
+        #@TODO Do we really need this?
+        self.first_round = True
         self.infos = {}
 
         self.current_sample = None
@@ -68,6 +70,7 @@ class SVGEnv(BaseEnv):
             raise ValueError("Ground truth SVG code not found in the selected sample.")
         _, self.gt_image = process_and_rasterize_svg(self.gt_svg_code)
         self.done = False
+        self.first_round = True
 
         obs = {
             'text_template': IMAGE_PLACEHOLDER,
@@ -86,7 +89,7 @@ class SVGEnv(BaseEnv):
             reward = 0.0
             info = {"error": "Action must be string"}
             obs = {"latest_action": action}
-            self.done = True
+            self.done = False
             return obs, reward, self.done, info
 
         try:
@@ -94,13 +97,13 @@ class SVGEnv(BaseEnv):
         except Exception as e:
             obs = {"latest_action": action}
             info = {"error": f"Fail generate SVG code: {e}"}
-            self.done = True
+            self.done = False
             return obs, 0.0, True, info
 
         # calculate reward by reward model
         score = self.reward_model.calculate_DINOv2_similarity_score(gt_im=self.gt_image, gen_im=gen_image)
         reward = score
-        self.done = True  # single step task
+        self.done = False  # single step task
         self.gen_svg_code = action
 
         obs = {
@@ -115,7 +118,8 @@ class SVGEnv(BaseEnv):
     # @TODO does it be used in training? return gt first
     def _render(self, mode='text'):
         assert mode == 'text'
-        if not self.done:
+        if self.first_round:
+            self.first_round = False
             return self.gt_svg_code
         else:
             return self.gen_svg_code
@@ -190,7 +194,7 @@ class SVGInterface(BaseInterface):
         if not action_list:
             reward += self.interface_config['format_penalty']
             env_state = "Invalid answer"
-            done = True
+            done = False
             info = {}
 
         else:
@@ -221,7 +225,7 @@ class SVGInterface(BaseInterface):
         self.env.close()
 
     @classmethod
-    #@TODO revise this prompt
+    #@TODO revise this prompt (ValueError: The prompt (total length 1321) is too long to fit into the model (context length 1280). Make sure that max_model_len is no smaller than the number of text tokens plus multimodal tokens. For image inputs, the number of image tokens depends on the number of images, and possibly their aspect ratios as well.)
     def config_repr(cls, env_config: Dict, interface_config: Dict) -> str:
         """
         Create a string representation of the configuration.
