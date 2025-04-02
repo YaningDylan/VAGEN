@@ -171,7 +171,7 @@ class SVGInterface(BaseInterface):
     def _step(self, raw_text: str) -> Tuple[Any, float, bool, Dict]:
 
         reward, done, final_info = 0, False, {}
-
+        
         #@TODO Where to define INVALID_ACTION? Here or inside
         preprocess_result = preprocess(raw_text, self._extract_one_action, self.INVALID_ACTION) 
         think = preprocess_result.think
@@ -210,7 +210,7 @@ class SVGInterface(BaseInterface):
             return {"text_template": env_state}, reward, done, final_info
         _, image = process_and_rasterize_svg(env_state)
         
-        #@TODO clean this part
+        #@TODO clean this part + sometimes cause image token out of memory (why limit_mm_per_prompt doesn't work?)
         observation = IMAGE_PLACEHOLDER
         text_template = init_observation_template.format(
             observation=observation,
