@@ -52,7 +52,7 @@ class SVGEnv(BaseEnv):
         self.env_config = env_config
         self.dataset_path = self.env_config.get('data_dir', '')
         if not os.path.exists(self.dataset_path):
-            raise ValueError(f"Dataset path {dataset_path} does not exist.")
+            raise ValueError(f"Dataset path {self.dataset_path} does not exist.")
         # load dataset
         self.dataset_path =  os.path.join(self.dataset_path, 'train.parquet')
         self.dataset = Dataset.from_parquet(self.dataset_path)
@@ -70,13 +70,11 @@ class SVGEnv(BaseEnv):
         self.gt_svg_code = None
         self.gt_image = None
         self.gen_svg_code = ""
-        self.gt_image = None
+        self.gen_image = None
 
     def _reset(self, seed: Optional[int] = None) -> Tuple[Any, Dict]:
         dataset_length = len(self.dataset)
         index = self.rng.randint(0, dataset_length - 1)
-        self.current_sample = self.dataset[index]
-
         self.current_sample = self.dataset[index]
         self.gt_svg_code = self.current_sample['extra_info']['env_config'].get('svg_code', '')
         self.img_id = self.current_sample['extra_info']['env_config'].get('svg_filename', '')
@@ -117,7 +115,7 @@ class SVGEnv(BaseEnv):
         self.gen_svg_code = action
 
         # calculate reward by reward model
-        scores = self.calculate_total_score(
+        scores = calculate_total_score(
           gt_im=self.gt_image, 
           gen_im=gen_image, 
           gt_code=self.gt_svg_code, 

@@ -74,7 +74,7 @@ class BaseMetric:
 
 class DINOScoreCalculator(BaseMetric): 
     #@TODO how to make sure DINO always on GPU? check how ray is deliver gpu resources
-    def __init__(self, config=None, model_size='large' device='cuda'):
+    def __init__(self, config=None, model_size='large', device='cuda'):
         super().__init__()
         self.class_name = self.__class__.__name__
         self.config = config

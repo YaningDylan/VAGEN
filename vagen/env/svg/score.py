@@ -1,12 +1,6 @@
-import torch
-import torch.nn as nn
 import numpy as np
 import cv2
-from PIL import Image
-from xml.dom import minidom
-import math
 import os
-from io import BytesIO
 from vagen.env.svg.dino import DINOScoreCalculator
 
 
@@ -24,7 +18,7 @@ def calculate_structural_accuracy(gt_im, gen_im):
     return intersection / union if union > 0 else 0
 
 
-def calculate_color_fidelity(self, gt_im, gen_im):
+def calculate_color_fidelity(gt_im, gen_im):
     "range from 0 - 1"
     gt_lab = cv2.cvtColor(np.array(gt_im), cv2.COLOR_RGB2LAB)
     gen_lab = cv2.cvtColor(np.array(gen_im), cv2.COLOR_RGB2LAB)
@@ -34,7 +28,7 @@ def calculate_color_fidelity(self, gt_im, gen_im):
     return sim
 
 
-def calculate_code_efficiency(self, gt_code, gen_code):
+def calculate_code_efficiency(gt_code, gen_code):
     if not gen_code:
       return 0
     gt_len = len(gt_code)

@@ -20,6 +20,7 @@ pip install 'matplotlib'
 pip install 'svgpathtools==1.6.1'
 pip install 'beautifulsoup4'
 pip install 'cairosvg'
+pip install 'opencv-python'
 
 echo "Installing flash-attn with no build isolation..."
 pip install flash-attn --no-build-isolation
