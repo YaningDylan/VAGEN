@@ -74,11 +74,12 @@ class BaseMetric:
 
 class DINOScoreCalculator(BaseMetric): 
     #@TODO how to make sure DINO always on GPU? check how ray is deliver gpu resources
-    def __init__(self, config=None, device='cuda'):
+    def __init__(self, config=None, model_size='large' device='cuda'):
         super().__init__()
         self.class_name = self.__class__.__name__
         self.config = config
-        self.model, self.processor = self.get_DINOv2_model("large")
+        self.model_size = model_size
+        self.model, self.processor = self.get_DINOv2_model(model_size)
         device = device if torch.cuda.is_available() else "cpu"
         self.model = self.model.to(device)
         self.device = device

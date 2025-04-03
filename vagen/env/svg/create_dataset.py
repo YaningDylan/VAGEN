@@ -10,6 +10,7 @@ class SVGDatasetCreator(DatasetCreator):
         super().__init__(config)
         # Save dataset name/path
         self.dataset_name = self.env_config.get('dataset_name', 'default_dataset')
+        self.seed = self.env_config.get('seed', '16')
         
     def create_dataset(
         self, 
@@ -79,7 +80,7 @@ class SVGDatasetCreator(DatasetCreator):
                             'data_dir': self.data_dir
                         },
                         'interface_config': self.interface_config,
-                        'seed': idx  # Use index as seed
+                        'seed': self.seed
                     }
                     
                     instances.append({
@@ -116,11 +117,18 @@ if __name__ == "__main__":
                       help='Directory to save the processed dataset')
     parser.add_argument('--dataset_name', type=str, default='starvector/svg-emoji-simple',
                       help='Hugging Face dataset name or path')
+    parser.add_argument('--seed', type=int, default=16,
+                        help='Seed for deterministic sampling')
+    parser.add_argument('--model_size', type=str, default='large', choices=['small', 'base', 'large'],
+                        help='Size of the DINO model to use')
+    parser.add_argument('--dino_only', action='store_true',
+                        help='Use only DINO score for reward')
     # @TODO customize sample number
     parser.add_argument('--train_samples', type=int, default=None,
                       help='Number of training samples to use')
     parser.add_argument('--test_samples', type=int, default=None, 
                       help='Number of test samples to use')
+    
     
     # interface_config
     parser.add_argument('--max_action_per_step', type=int, default=1,
@@ -131,11 +139,37 @@ if __name__ == "__main__":
                         help='Reward for correct formatting')
     parser.add_argument('--format_penalty', type=float, default=0,
                         help='Penalty for incorrect formatting')
+
+    # Optional score weights
+    parser.add_argument('--dino_weight', type=float, default=None,
+                        help='Weight for DINO score')
+    parser.add_argument('--structural_weight', type=float, default=None,
+                        help='Weight for structural accuracy')
+    parser.add_argument('--color_weight', type=float, default=None,
+                        help='Weight for color fidelity')
+    parser.add_argument('--code_weight', type=float, default=None,
+                        help='Weight for code efficiency')
     
     args, colab_par = parser.parse_known_args()
 
-    args.name = 'svg'    
-    args.env_config = {'dataset_name': args.dataset_name}
+    args.name = 'svg'
+
+    score_config = {
+        'model_size': args.model_size,
+        'dino_only': args.dino_only,
+    }
+    if args.dino_weight is not None: score_config['dino_weight'] = args.dino_weight
+    if args.structural_weight is not None: score_config['structural_weight'] = args.structural_weight
+    if args.color_weight is not None: score_config['color_weight'] = args.color_weight
+    if args.code_weight is not None: score_config['code_weight'] = args.code_weight
+
+    args.env_config = {
+        'dataset_name': args.dataset_name,
+        'data_dir': args.data_dir,
+        'seed': args.seed,
+        'score_config': score_config
+    }
+    
     args.interface_config = {
         'max_action_per_step': args.max_action_per_step,
         'max_action_penalty': args.max_action_penalty,

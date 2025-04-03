@@ -1,14 +1,16 @@
 import os
 import re
 import torch
+import random 
 from typing import Dict, Any, Optional, List, Union, Tuple
 from datasets import Dataset
 from PIL import Image
+import random
 from vagen.env.register import register
 from vagen.env.base import BaseInterface, BaseEnv, IMAGE_PLACEHOLDER
 from vagen.env.utils import preprocess, PreprocessResult, postprocess
 from vagen.env.svg.svg_utils import process_and_rasterize_svg
-from vagen.env.svg.dino import DINOScoreCalculator
+from vagen.env.svg.score import calculate_total_score
 from vagen.env.svg.prompt import (
     init_observation_template,
     action_template,
@@ -17,43 +19,48 @@ from vagen.env.svg.prompt import (
 
 class SVGEnv(BaseEnv):
     """
-    input example:
-      data_source: str
-      prompt: list
-      extra_info: dict
-          env_config: dict
-              data_dir: str
-              dataset_name: str
-              item_idx: int
-              svg_code: str
-              svg_filename: str
-              score_config: dict
-          env_name: str
-          interface_config: dict
-              format_penalty: int
-              format_reward: int
-              max_action_penalty: int
-              max_action_per_step: int
-          seed: int
-          split: str
-    output: obs, reward, done, info
+    Input Example (env_config):
+        data_dir: str
+        dataset_name: str
+        split: str
+            Dataset split, e.g., "train" or "test".
+        score_config: dict
+                model_size: str
+                dino_only: bool
+                dino_weight: float (optional)
+                structural_weight: float (optional)
+                color_weight: float (optional)
+                code_weight: float (optional)
+        seed: int
+
+    Output:
+        obs: dict
+        reward: float
+        done: bool
+        info: dict
+            - gt_svg_code: ground truth SVG
+            - gen_svg_code: generated SVG
+            - scores: dict of individual and total scores
     """
-    def __init__(self, dataset_path: str, device: str = 'cuda'):
+    def __init__(self, env_config: dict):
         """
         Args:
             dataset_path: 'data/svg/train(test).parquet'
             device: for dino reward model
         """
         #@TODO avoid double loading (one from here and one from trainer) check!
-        if not os.path.exists(dataset_path):
+        self.env_config = env_config
+        self.dataset_path = self.env_config.get('data_dir', '')
+        if not os.path.exists(self.dataset_path):
             raise ValueError(f"Dataset path {dataset_path} does not exist.")
         # load dataset
-        dataset_path =  os.path.join(dataset_path, 'train.parquet')
-        self.dataset = Dataset.from_parquet(dataset_path)
-        self.device = device
-        # init reward model
-        self.reward_model = DINOScoreCalculator(device=self.device)
+        self.dataset_path =  os.path.join(self.dataset_path, 'train.parquet')
+        self.dataset = Dataset.from_parquet(self.dataset_path)
         self.done = False
+        # random seed
+        self.rng = random.Random()
+        if "seed" in env_config:
+            self.rng.seed(env_config["seed"])
         #@TODO Do we really need this?
         self.first_round = True
         self.infos = {}
@@ -63,10 +70,13 @@ class SVGEnv(BaseEnv):
         self.gt_svg_code = None
         self.gt_image = None
         self.gen_svg_code = ""
+        self.gt_image = None
 
     def _reset(self, seed: Optional[int] = None) -> Tuple[Any, Dict]:
-        #@TODO choose starting data by seed
-        index = 0 if seed is None else seed % len(self.dataset)
+        dataset_length = len(self.dataset)
+        index = self.rng.randint(0, dataset_length - 1)
+        self.current_sample = self.dataset[index]
+
         self.current_sample = self.dataset[index]
         self.gt_svg_code = self.current_sample['extra_info']['env_config'].get('svg_code', '')
         self.img_id = self.current_sample['extra_info']['env_config'].get('svg_filename', '')
@@ -88,6 +98,7 @@ class SVGEnv(BaseEnv):
         Returns:
           obs, reward, done, info
         """
+        #@TODO check obs latest action workflow
         if not isinstance(action, str):
             reward = 0.0
             info = {"error": "Action must be string"}
@@ -102,12 +113,20 @@ class SVGEnv(BaseEnv):
             info = {"error": f"Fail generate SVG code: {e}"}
             self.done = False
             return obs, 0.0, True, info
+        
+        self.gen_svg_code = action
 
         # calculate reward by reward model
-        score = self.reward_model.calculate_DINOv2_similarity_score(gt_im=self.gt_image, gen_im=gen_image)
-        reward = score
+        scores = self.calculate_total_score(
+          gt_im=self.gt_image, 
+          gen_im=gen_image, 
+          gt_code=self.gt_svg_code, 
+          gen_code=self.gen_svg_code, 
+          score_config=self.env_config["score_config"]
+        )
+        reward = scores["total_score"]
         self.done = False  # single step task
-        self.gen_svg_code = action
+        
 
         obs = {
             "latest_action": action
@@ -115,7 +134,7 @@ class SVGEnv(BaseEnv):
         info = {
             "gt_svg_code": self.gt_svg_code,
             "gen_svg_code": action,
-            "dino_score": score
+            "scores": scores 
         }
         return obs, reward, self.done, info
     
@@ -138,8 +157,7 @@ class SVGInterface(BaseInterface):
         super().__init__(env_config)
         self.env_config = env_config
         self.interface_config = interface_config
-        self.dataset_path = env_config.get('data_dir', '')
-        self.env = SVGEnv(dataset_path=self.dataset_path)
+        self.env = SVGEnv(env_config=env_config)
 
         self.max_action_per_step = interface_config.get('max_action_per_step', 1)
         self.max_action_penalty = interface_config.get('max_action_penalty', 0.0)

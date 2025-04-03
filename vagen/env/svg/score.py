@@ -54,20 +54,30 @@ def calculate_code_efficiency(self, gt_code, gen_code):
   
 
 #@TODO make it into class?
-def calculate_total_score(reward_model, gt_im, gen_im, gt_code, gen_code, dino_only=False):
+def calculate_total_score(gt_im, gen_im, gt_code, gen_code, score_config):
     """
     calculate all metrics on average
     
     Args:
-        reward_model: DINO Model
         gt_im: gt image
         gen_im: generated image
+        gt_code: gt code
         gen_svg: generated code
-        dino_only: whether only use dino as score
+        score_config:
+          - model_size: small, base, large
+          - dino_only: whether only use dino as score
+          - dino_weight
+          - structural_weight
+          - color_weight
+          - code_weight
         
     Returns:
         dict: include all scores
     """
+    model_size = score_config.get("model_size", "large")
+    dino_only = score_config.get("dino_only", False)
+
+    reward_model = DINOScoreCalculator(model_size=model_size, device="gpu")
     dino_score = reward_model.calculate_DINOv2_similarity_score(gt_im=gt_im, gen_im=gen_im)
     
     if dino_only:
@@ -80,21 +90,33 @@ def calculate_total_score(reward_model, gt_im, gen_im, gt_code, gen_code, dino_o
     color_score = calculate_color_fidelity(gt_im, gen_im)
     code_score = calculate_code_efficiency(gt_code, gen_code)
     
-    weights = {
-        'dino_score': 5.0,
-        'structural_accuracy': 3.0,
-        'color_fidelity': 2.0,
-        'code_efficiency': 2.0
+    default_weights = {
+        "small":{"dino": 3.0, "structural": 4.0, "color": 2.0, "code": 1.0},
+        "base":{"dino": 5.0, "structural": 3.0, "color": 2.0, "code": 2.0},
+        "large":{"dino": 6.0, "structural": 2.0, "color": 1.0, "code": 1.0}
     }
+
+    weights = {
+        "dino": score_config.get("dino_weight", default_weights[model_size]["dino"]),
+        "structural": score_config.get("structural_weight", default_weights[model_size]["structural"]),
+        "color": score_config.get("color_weight", default_weights[model_size]["color"]),
+        "code": score_config.get("code_weight", default_weights[model_size]["code"]),
+    }
+
     
     scores = {
         'dino_score': dino_score,
-        'structural_accuracy': structural_score,
-        'color_fidelity': color_score,
-        'code_efficiency': code_score
+        'structural_score': structural_score,
+        'color_score': color_score,
+        'code_score': code_score
     }
     
-    weighted_sum = sum(scores[k] * weights[k] for k in weights)
+    weighted_sum = (
+        dino_score * weights["dino"] +
+        structural_score * weights["structural"] +
+        color_score * weights["color"] +
+        code_score * weights["code"]
+    )
         
     scores['total_score'] = max(0.0, weighted_sum)
     
