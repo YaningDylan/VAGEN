@@ -1,4 +1,5 @@
 import os
+from pickle import FALSE
 import re
 import torch
 import random 
@@ -9,13 +10,15 @@ import random
 from vagen.env.register import register
 from vagen.env.base import BaseInterface, BaseEnv, IMAGE_PLACEHOLDER
 from vagen.env.utils import preprocess, PreprocessResult, postprocess
-from vagen.env.svg.svg_utils import process_and_rasterize_svg
+from vagen.env.svg.svg_utils import (process_and_rasterize_svg, is_valid_svg)
 from vagen.env.svg.score import calculate_total_score
 from vagen.env.svg.prompt import (
     init_observation_template,
     action_template,
     instruction_template,
 )
+#@TODO del
+import json
 
 class SVGEnv(BaseEnv):
     """
@@ -163,6 +166,35 @@ class SVGInterface(BaseInterface):
         self.format_penalty = interface_config.get('format_penalty', 0.0)
 
         self.INVALID_ACTION = 0
+        
+        #@TODO del after debug
+        self.analysis_mode = interface_config.get('analysis_mode', False)
+        if self.analysis_mode:
+          import logging
+          import os
+          from pathlib import Path
+          
+          
+          log_dir = Path(self.env_config.get('data_dir', 'data/svg')) / 'analysis_logs'
+          os.makedirs(log_dir, exist_ok=True)
+          
+          # failure logger
+          self.failure_logger = logging.getLogger(f'svg_failure_{id(self)}')
+          self.failure_logger.setLevel(logging.INFO)
+          
+          if not self.failure_logger.handlers:
+              failure_handler = logging.FileHandler(log_dir / 'failure_cases.log')
+              failure_handler.setFormatter(logging.Formatter('%(message)s'))
+              self.failure_logger.addHandler(failure_handler)
+          
+          # success logger
+          self.success_logger = logging.getLogger(f'svg_success_{id(self)}')
+          self.success_logger.setLevel(logging.INFO)
+          
+          if not self.success_logger.handlers:
+              success_handler = logging.FileHandler(log_dir / 'success_cases.log')
+              success_handler.setFormatter(logging.Formatter('%(message)s'))
+              self.success_logger.addHandler(success_handler)
 
     @classmethod
     def _extract_one_action(cls, text):
@@ -207,10 +239,15 @@ class SVGInterface(BaseInterface):
         # Avoid if preprocess does not work in svg scenerio @TODO integrate this code
         if not action_list:
             svg_code = self.extract_svg_code(final_info['llm_raw_response'])
-            if svg_code:
+            if svg_code and is_valid_svg(svg_code):
                 action_list = [svg_code]
         else:
-            action_list = [self.extract_svg_code(action_list[0])]
+            svg_code = self.extract_svg_code(action_list[0])
+            if svg_code and is_valid_svg(svg_code):
+                action_list = [svg_code]
+            else:
+                action_list = []
+
 
         if not action_list:
             reward += self.interface_config['format_penalty']
@@ -231,22 +268,51 @@ class SVGInterface(BaseInterface):
         self.traj_reward += reward
 
         final_info.update(info) # NOTE currently only use the last step info
-        #@ Add a "Trash Bin" here
-        if env_state == "Invalid answer" or "":
-            return {"text_template": env_state}, reward, done, final_info
+        #@TODO revise possible? failure log
+        if env_state == "Invalid answer" or env_state == "":
+          if self.analysis_mode:
+            
+            failure_info = {
+                'img_id': self.env.img_id,
+                'gt_svg_code': self.env.gt_svg_code,
+                'gen_svg_code': preprocess_result.llm_raw_response,
+                'failure_reason': 'wrong action'
+            }
+            self.failure_logger.info(json.dumps(failure_info))
+
+          return {"text_template": env_state}, reward, done, final_info
         _, image = process_and_rasterize_svg(env_state)
         
-        #@TODO sometimes cause image token out of memory (why limit_mm_per_prompt doesn't work?)
+        if self.analysis_mode:
+          success_info = {
+              'img_id': self.env.img_id,
+              'gt_svg_code': self.env.gt_svg_code,
+              'gen_svg_code': action_list[0],
+              'scores': info.get('scores', {})
+          }
+          self.success_logger.info(json.dumps(success_info))
+
         observation = IMAGE_PLACEHOLDER
         text_template = action_template.format(
             observation=observation,
             reward=reward
         )
-        obs = {"text_template": text_template, "multi_modal_data": image}
+        obs = {"text_template": text_template, "multi_modal_data": {IMAGE_PLACEHOLDER: [image]}}
         return obs, reward, done, final_info
 
     def close(self):
         self.env.close()
+
+        if hasattr(self, 'analysis_mode') and self.analysis_mode:
+          if hasattr(self, 'failure_logger'):
+              for handler in self.failure_logger.handlers:
+                  handler.close()
+                  self.failure_logger.removeHandler(handler)
+                  
+          if hasattr(self, 'success_logger'):
+              for handler in self.success_logger.handlers:
+                  handler.close()
+                  self.success_logger.removeHandler(handler)
 
     @classmethod
     def config_repr(cls, env_config: Dict, interface_config: Dict) -> str:

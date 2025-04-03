@@ -123,6 +123,8 @@ if __name__ == "__main__":
                         help='Size of the DINO model to use')
     parser.add_argument('--dino_only', action='store_true',
                         help='Use only DINO score for reward')
+    parser.add_argument("--analysis_mode", action='store_true',
+                        help='Generate a seperate logs store all failure action')
     # @TODO customize sample number
     parser.add_argument('--train_samples', type=int, default=None,
                       help='Number of training samples to use')
@@ -175,6 +177,7 @@ if __name__ == "__main__":
         'max_action_penalty': args.max_action_penalty,
         'format_reward': args.format_reward,
         'format_penalty': args.format_penalty,
+        'analysis_mode': args.analysis_mode
     }
     # Create dataset
     creator = SVGDatasetCreator(config=vars(args))
